@@ -1,20 +1,53 @@
 # Schwab Options Viewer
 
-A comprehensive Python-based dashboard for analyzing options markets in real-time using the Schwab Trader API. This tool provides traders and investors with powerful options analysis capabilities including real-time quotes, Greeks calculations, implied volatility analysis, and unusual activity detection.
+Schwab Options Viewer is a Python-based dashboard designed to help traders, investors, and developers analyze options markets in real-time using the Schwab Trader API. **Track options for ANY publicly traded stock or ETF** - from mega-cap stocks like AAPL and TSLA to sector ETFs like QQQ and SPY. The project provides an easy-to-use interface for visualizing option chains, monitoring key metrics, and identifying unusual trading activity across the entire market.
 
 ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
 ![Streamlit](https://img.shields.io/badge/streamlit-1.28+-red.svg)
 
-## 🚀 Features
+## � Supported Securities
+
+### ✅ **ALL PUBLICLY TRADED STOCKS & ETFs**
+This application works with **ANY** stock or ETF that has options trading, including:
+
+#### **Popular Individual Stocks**
+- **Tech Giants**: AAPL, MSFT, GOOGL, AMZN, META, NVDA, TSLA, NFLX, CRM, ORCL
+- **Finance**: JPM, BAC, WFC, GS, BRK.B, V, MA, AXP, C, MS
+- **Healthcare**: JNJ, UNH, PFE, ABBV, TMO, DHR, MRK, BMY, GILD, CVS
+- **Consumer**: WMT, HD, MCD, NKE, SBUX, TGT, LOW, COST, PG, KO
+- **Industrial**: BA, CAT, GE, MMM, HON, UPS, LMT, RTX, DE, EMR
+- **Energy**: XOM, CVX, COP, EOG, SLB, MPC, VLO, OXY, HAL, BKR
+
+#### **Popular ETFs**
+- **Broad Market**: SPY, QQQ, IWM, VTI, VOO, VEA, VWO
+- **Sector ETFs**: XLF, XLK, XLE, XLI, XLV, XLU, XLP, XLY, XLB, XLRE
+- **Volatility**: VIX, UVXY, SVXY, VXX
+- **Commodities**: GLD, SLV, USO, UNG, DBA, DBB
+- **Fixed Income**: TLT, IEF, HYG, LQD, TIP
+
+#### **International & Emerging Markets**
+- **Country ETFs**: EWJ, EWZ, EWY, EWG, EWU, EWC, EWA
+- **Regional ETFs**: EEM, EFA, VGK, VPL, VT
+- **Currency ETFs**: UUP, FXE, FXY, CYB
+
+### 🔍 **Symbol Discovery Features**
+- **Quick Select Categories**: Browse stocks by sector/market cap
+- **Symbol Validation**: Verify ticker symbols and get company info
+- **Recent History**: Track your recently analyzed symbols
+- **Search Suggestions**: Popular tickers organized by category
+
+## �🚀 Features
 
 ### Core Functionality
-- **Real-Time Option Chains**: Fetch live options data for any ticker symbol
+- **🌟 ANY STOCK SUPPORT**: Track options for **any publicly traded stock or ETF** (AAPL, TSLA, NVDA, QQQ, etc.)
+- **Real-Time Option Chains**: Fetch live options data with real-time quotes and Greeks
 - **Interactive Dashboard**: Built with Streamlit for intuitive filtering and visualization
 - **Greeks Analysis**: Complete options Greeks (Delta, Gamma, Theta, Vega, Rho) calculations
 - **Implied Volatility**: Real-time IV data and volatility smile visualization
 - **Unusual Activity Detection**: Identify contracts with high volume relative to open interest
 - **Multiple Visualizations**: Volume charts, open interest analysis, and volatility curves
+- **Symbol Discovery**: Popular stock categories and recent symbol history
 
 ### Advanced Features
 - **OAuth2 Authentication**: Secure integration with Schwab Trader API
@@ -112,8 +145,10 @@ The application will automatically handle token refresh for future sessions.
 ### Using the Dashboard
 
 #### 1. **Basic Options Analysis**
-- Enter a stock symbol (e.g., AAPL, SPY, TSLA)
-- Select expiration timeframe
+- **Enter ANY stock symbol**: AAPL, TSLA, NVDA, MSFT, META, AMZN, GOOGL, etc.
+- **Use Quick Select**: Choose from popular categories (Mega Cap, ETFs, Finance, etc.)
+- **Validate Symbol**: Verify ticker and see company info before analysis
+- Select expiration timeframe (7, 14, 30, 45, 60, 90 days, or All)
 - Choose contract type (Calls, Puts, or All)
 - Click "Fetch Options Data"
 

@@ -267,7 +267,10 @@ def display_options_table(df, title="Options Chain"):
 def main():
     """Main application function."""
     st.title("📈 Schwab Options Viewer")
-    st.markdown("Real-time options analysis and unusual activity detection")
+    st.markdown("**Real-time options analysis for ANY stock or ETF** • Unusual activity detection • Advanced Greeks calculations")
+    
+    # Show current capabilities
+    st.info("💡 **Track Any Stock**: Enter any ticker symbol (AAPL, TSLA, NVDA, etc.) to analyze its options chain in real-time!")
     
     # Load configuration
     config = load_config()
@@ -280,11 +283,50 @@ def main():
         return
     
     # Sidebar controls
-    st.sidebar.header("Options Parameters")
+    st.sidebar.header("📈 Stock Selection")
     
-    # Symbol input
+    # Symbol input with examples
+    st.sidebar.markdown("**Enter any stock ticker symbol:**")
     default_ticker = os.getenv('DEFAULT_TICKER', 'SPY')
-    symbol = st.sidebar.text_input("Stock Symbol", value=default_ticker).upper()
+    symbol = st.sidebar.text_input(
+        "Stock Symbol", 
+        value=default_ticker,
+        placeholder="e.g., AAPL, TSLA, MSFT, NVDA, QQQ",
+        help="Enter any publicly traded stock or ETF symbol"
+    ).upper()
+    
+    # Popular symbols quick select
+    st.sidebar.markdown("**Quick Select Popular Symbols:**")
+    popular_symbols = {
+        "🔥 Mega Cap": ["AAPL", "MSFT", "GOOGL", "AMZN", "NVDA", "META", "TSLA"],
+        "📊 ETFs": ["SPY", "QQQ", "IWM", "VIX", "GLD", "TLT", "EEM"],
+        "💰 Finance": ["JPM", "BAC", "WFC", "GS", "MS", "C", "V"],
+        "🏭 Industrial": ["BA", "CAT", "GE", "MMM", "HON", "UPS", "LMT"],
+        "💊 Healthcare": ["JNJ", "PFE", "UNH", "ABBV", "MRK", "TMO", "DHR"],
+        "⚡ Energy": ["XOM", "CVX", "COP", "EOG", "SLB", "MPC", "VLO"]
+    }
+    
+    selected_category = st.sidebar.selectbox("Select Category:", list(popular_symbols.keys()))
+    
+    cols = st.sidebar.columns(4)
+    for i, ticker in enumerate(popular_symbols[selected_category]):
+        if cols[i % 4].button(ticker, key=f"btn_{ticker}"):
+            symbol = ticker
+            st.rerun()
+    
+    # Recent symbols
+    if 'recent_symbols' not in st.session_state:
+        st.session_state.recent_symbols = []
+    
+    if st.session_state.recent_symbols:
+        st.sidebar.markdown("**Recently Viewed:**")
+        recent_cols = st.sidebar.columns(min(len(st.session_state.recent_symbols), 5))
+        for i, recent_symbol in enumerate(st.session_state.recent_symbols[:5]):
+            if recent_cols[i % 5].button(recent_symbol, key=f"recent_{recent_symbol}"):
+                symbol = recent_symbol
+                st.rerun()
+    
+    st.sidebar.header("⚙️ Options Parameters")
     
     # Expiration filtering
     exp_days = st.sidebar.selectbox(
@@ -319,6 +361,28 @@ def main():
     oi_threshold = st.sidebar.number_input("Open Interest Threshold", value=50, min_value=0)
     ratio_threshold = st.sidebar.number_input("Vol/OI Ratio Threshold", value=2.0, min_value=0.1, step=0.1)
     
+    # Symbol validation and search
+    st.sidebar.header("🔍 Symbol Lookup")
+    if st.sidebar.button("🔎 Validate Symbol"):
+        if symbol:
+            with st.spinner(f"Validating symbol {symbol}..."):
+                try:
+                    # Try to get a quote to validate the symbol
+                    quote_data = client.get_quote(symbol)
+                    if quote_data and symbol in quote_data:
+                        quote_info = quote_data[symbol]
+                        company_name = quote_info.get('description', 'N/A')
+                        last_price = quote_info.get('last', 0)
+                        st.sidebar.success(f"✅ Valid Symbol")
+                        st.sidebar.write(f"**{symbol}**: {company_name}")
+                        st.sidebar.write(f"**Price**: ${last_price:.2f}")
+                    else:
+                        st.sidebar.error(f"❌ Invalid symbol: {symbol}")
+                except Exception as e:
+                    st.sidebar.warning(f"⚠️ Could not validate: {str(e)}")
+        else:
+            st.sidebar.error("Please enter a symbol to validate")
+    
     # Fetch data button
     if st.sidebar.button("🔄 Fetch Options Data", type="primary"):
         if not symbol:
@@ -350,6 +414,17 @@ def main():
                     # Store in session state
                     st.session_state.option_data = option_data
                     st.session_state.symbol = symbol
+                    
+                    # Add to recent symbols (avoid duplicates)
+                    if symbol not in st.session_state.recent_symbols:
+                        st.session_state.recent_symbols.insert(0, symbol)
+                        # Keep only last 10 symbols
+                        st.session_state.recent_symbols = st.session_state.recent_symbols[:10]
+                    elif symbol in st.session_state.recent_symbols:
+                        # Move to front if already exists
+                        st.session_state.recent_symbols.remove(symbol)
+                        st.session_state.recent_symbols.insert(0, symbol)
+                    
                     st.success(f"✅ Successfully fetched options data for {symbol}")
                 else:
                     st.error(f"❌ Failed to fetch options data for {symbol}")
@@ -377,6 +452,11 @@ def main():
         summary = calculate_option_metrics_summary(df)
         underlying = option_data.get('underlying', {})
         underlying_price = underlying.get('last', 0)
+        
+        # Show company info if available
+        company_name = underlying.get('description', symbol)
+        if company_name != symbol:
+            st.markdown(f"**Company**: {company_name}")
         
         col1, col2, col3, col4, col5 = st.columns(5)
         
