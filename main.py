@@ -15,6 +15,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 
 from src.auth import SchwabAuth
 from src.schwab_client import SchwabClient
+from src.ipo_tracker import IPOTracker
 from src.utils import (
     format_option_data, detect_unusual_activity, calculate_option_metrics_summary,
     format_currency, format_percentage, format_large_number
@@ -264,11 +265,304 @@ def display_options_table(df, title="Options Chain"):
         height=400
     )
 
+def create_ipo_dashboard():
+    """Create the IPO tracking dashboard."""
+    st.header("🚀 IPO Tracker - Upcoming & Recent IPOs")
+    st.markdown("Track upcoming Initial Public Offerings and recent IPO performance")
+    
+    # Initialize IPO tracker
+    ipo_tracker = IPOTracker()
+    
+    # IPO Dashboard tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📅 Upcoming IPOs", "📊 Recent Performance", "📈 IPO Calendar", "📋 Market Overview"])
+    
+    with tab1:
+        st.subheader("🔮 Upcoming IPOs")
+        
+        # Controls for upcoming IPOs
+        col1, col2 = st.columns(2)
+        with col1:
+            days_ahead = st.slider("Days Ahead to Look", 7, 365, 90)
+        with col2:
+            sector_filter = st.selectbox("Filter by Sector", 
+                                       ["All Sectors", "Technology", "Biotechnology", 
+                                        "Financial Technology", "Clean Energy", "Healthcare", 
+                                        "Consumer Retail", "Industrial"])
+        
+        # Fetch and display upcoming IPOs
+        upcoming_df = ipo_tracker.get_upcoming_ipos(days_ahead=days_ahead)
+        
+        if not upcoming_df.empty:
+            # Apply sector filter
+            if sector_filter != "All Sectors":
+                upcoming_df = upcoming_df[upcoming_df['sector'] == sector_filter]
+            
+            if not upcoming_df.empty:
+                # Display summary metrics
+                col1, col2, col3, col4 = st.columns(4)
+                with col1:
+                    st.metric("Total Upcoming", len(upcoming_df))
+                with col2:
+                    avg_days = upcoming_df['days_until_ipo'].mean()
+                    st.metric("Avg Days Until IPO", f"{avg_days:.0f}")
+                with col3:
+                    total_raise = upcoming_df['estimated_raise'].sum()
+                    st.metric("Total Est. Raise", format_large_number(int(total_raise)))
+                with col4:
+                    avg_score = upcoming_df['appeal_score'].mean()
+                    st.metric("Avg Appeal Score", f"{avg_score:.0f}/100")
+                
+                # Display upcoming IPOs table
+                display_ipo_table(upcoming_df, "upcoming")
+            else:
+                st.info(f"No upcoming IPOs found in {sector_filter} sector for the next {days_ahead} days.")
+        else:
+            st.info("No upcoming IPO data available.")
+    
+    with tab2:
+        st.subheader("📊 Recent IPO Performance")
+        
+        # Controls for recent IPOs
+        col1, col2 = st.columns(2)
+        with col1:
+            days_back = st.slider("Days Back to Look", 7, 180, 30)
+        with col2:
+            sort_by = st.selectbox("Sort by", 
+                                 ["IPO Date", "Current Return", "First Day Return", "Volume"])
+        
+        # Fetch recent IPOs
+        recent_df = ipo_tracker.get_recent_ipos(days_back=days_back)
+        
+        if not recent_df.empty:
+            # Sort dataframe
+            sort_mapping = {
+                "IPO Date": "ipo_date",
+                "Current Return": "current_return",
+                "First Day Return": "first_day_return",
+                "Volume": "volume_today"
+            }
+            if sort_by in sort_mapping:
+                recent_df = recent_df.sort_values(sort_mapping[sort_by], ascending=False)
+            
+            # Display performance metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Total Recent IPOs", len(recent_df))
+            with col2:
+                avg_return = recent_df['current_return'].mean()
+                st.metric("Avg Return", f"{avg_return:+.1f}%")
+            with col3:
+                winners = len(recent_df[recent_df['current_return'] > 0])
+                st.metric("Positive Returns", f"{winners}/{len(recent_df)}")
+            with col4:
+                best_performer = recent_df.loc[recent_df['current_return'].idxmax(), 'current_return']
+                st.metric("Best Performer", f"+{best_performer:.1f}%")
+            
+            # Performance chart
+            create_ipo_performance_chart(recent_df)
+            
+            # Display recent IPOs table
+            display_ipo_table(recent_df, "recent")
+        else:
+            st.info("No recent IPO data available.")
+    
+    with tab3:
+        st.subheader("📈 IPO Calendar View")
+        
+        # Date range selector
+        col1, col2 = st.columns(2)
+        with col1:
+            start_date = st.date_input("Start Date", datetime.now().date())
+        with col2:
+            end_date = st.date_input("End Date", (datetime.now() + timedelta(days=180)).date())
+        
+        # Get calendar data
+        calendar_df = ipo_tracker.get_ipo_calendar(
+            start_date=start_date.strftime('%Y-%m-%d'),
+            end_date=end_date.strftime('%Y-%m-%d')
+        )
+        
+        if not calendar_df.empty:
+            # Create calendar visualization
+            create_ipo_calendar_chart(calendar_df)
+            
+            # Display calendar table
+            st.subheader("IPO Calendar Details")
+            display_ipo_table(calendar_df, "calendar")
+        else:
+            st.info("No IPO data available for the selected date range.")
+    
+    with tab4:
+        st.subheader("📋 IPO Market Overview")
+        
+        # Get market statistics
+        stats = ipo_tracker.get_ipo_statistics()
+        
+        if stats:
+            # Market overview metrics
+            col1, col2, col3, col4 = st.columns(4)
+            with col1:
+                st.metric("Upcoming IPOs", stats.get('upcoming_count', 0))
+            with col2:
+                st.metric("Recent IPOs (90d)", stats.get('recent_count', 0))
+            with col3:
+                avg_return = stats.get('recent_performance', {}).get('avg_return', 0)
+                st.metric("Avg Recent Return", f"{avg_return:+.1f}%")
+            with col4:
+                sentiment = stats.get('market_sentiment', 'Neutral')
+                st.metric("Market Sentiment", sentiment)
+            
+            # Hot sectors
+            if stats.get('hot_sectors'):
+                st.subheader("🔥 Hot Sectors")
+                hot_sectors = stats['hot_sectors']
+                for i, sector in enumerate(hot_sectors[:3]):
+                    st.write(f"{i+1}. **{sector}**")
+            
+            # Sector breakdown
+            if stats.get('upcoming_sectors'):
+                st.subheader("📊 Upcoming IPOs by Sector")
+                sector_data = stats['upcoming_sectors']
+                
+                # Create pie chart
+                fig = px.pie(
+                    values=list(sector_data.values()),
+                    names=list(sector_data.keys()),
+                    title="Upcoming IPOs Distribution by Sector"
+                )
+                st.plotly_chart(fig, use_container_width=True)
+            
+            # Performance breakdown
+            perf_data = stats.get('recent_performance', {})
+            if perf_data:
+                st.subheader("📈 Recent IPO Performance Breakdown")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.metric("Positive Returns", perf_data.get('positive_returns', 0))
+                with col2:
+                    st.metric("Negative Returns", perf_data.get('negative_returns', 0))
+        else:
+            st.info("No market overview data available.")
+
+def display_ipo_table(df: pd.DataFrame, table_type: str):
+    """Display formatted IPO table."""
+    if df.empty:
+        return
+    
+    display_df = df.copy()
+    
+    if table_type == "upcoming":
+        # Format upcoming IPO columns
+        columns_to_show = {
+            'symbol': 'Symbol',
+            'company_name': 'Company',
+            'sector': 'Sector',
+            'expected_date': 'Expected Date',
+            'days_until_ipo': 'Days Until',
+            'price_range': 'Price Range',
+            'estimated_raise_formatted': 'Est. Raise',
+            'status': 'Status',
+            'appeal_score': 'Appeal Score'
+        }
+    elif table_type == "recent":
+        # Format recent IPO columns
+        columns_to_show = {
+            'symbol': 'Symbol',
+            'company_name': 'Company',
+            'sector': 'Sector',
+            'ipo_date': 'IPO Date',
+            'ipo_price': 'IPO Price',
+            'current_price': 'Current Price',
+            'current_return': 'Return %',
+            'volume_today': 'Volume'
+        }
+        
+        # Format percentage columns
+        display_df['current_return'] = display_df['current_return'].apply(lambda x: f"{x:+.1f}%")
+        display_df['ipo_price'] = display_df['ipo_price'].apply(lambda x: f"${x:.2f}")
+        display_df['current_price'] = display_df['current_price'].apply(lambda x: f"${x:.2f}")
+        display_df['volume_today'] = display_df['volume_today'].apply(format_large_number)
+    else:
+        # Calendar view
+        columns_to_show = {
+            'symbol': 'Symbol',
+            'company_name': 'Company',
+            'sector': 'Sector',
+            'expected_date': 'Date',
+            'status': 'Status',
+            'type': 'Type'
+        }
+    
+    # Filter to available columns
+    available_columns = {k: v for k, v in columns_to_show.items() if k in display_df.columns}
+    
+    if available_columns:
+        final_df = display_df[list(available_columns.keys())].rename(columns=available_columns)
+        st.dataframe(final_df, use_container_width=True, height=400)
+
+def create_ipo_performance_chart(df: pd.DataFrame):
+    """Create IPO performance visualization."""
+    if df.empty:
+        return
+    
+    # Create performance chart
+    fig = go.Figure()
+    
+    # Add current returns
+    fig.add_trace(go.Bar(
+        x=df['symbol'],
+        y=df['current_return'],
+        name='Current Return %',
+        marker_color=['green' if x > 0 else 'red' for x in df['current_return']],
+        text=[f"{x:+.1f}%" for x in df['current_return']],
+        textposition='outside'
+    ))
+    
+    fig.update_layout(
+        title="Recent IPO Performance",
+        xaxis_title="IPO Symbol",
+        yaxis_title="Return %",
+        height=400
+    )
+    
+    st.plotly_chart(fig, use_container_width=True)
+
+def create_ipo_calendar_chart(df: pd.DataFrame):
+    """Create IPO calendar timeline visualization."""
+    if df.empty:
+        return
+    
+    # Create timeline chart
+    fig = px.timeline(
+        df,
+        x_start='expected_date',
+        x_end='expected_date',
+        y='company_name',
+        color='sector',
+        title="IPO Timeline",
+        height=max(400, len(df) * 25)
+    )
+    
+    fig.update_yaxes(categoryorder="total ascending")
+    st.plotly_chart(fig, use_container_width=True)
+
 def main():
     """Main application function."""
-    st.title("📈 Schwab Options Viewer")
-    st.markdown("**Real-time options analysis for ANY stock or ETF** • Unusual activity detection • Advanced Greeks calculations")
+    st.title("📈 Schwab Options & IPO Tracker")
+    st.markdown("**Real-time options analysis for ANY stock or ETF** • **IPO tracking & analysis** • Unusual activity detection • Advanced Greeks calculations")
     
+    # Main navigation tabs
+    main_tab1, main_tab2 = st.tabs(["📊 Options Analysis", "🚀 IPO Tracker"])
+    
+    with main_tab1:
+        options_dashboard()
+    
+    with main_tab2:
+        create_ipo_dashboard()
+
+def options_dashboard():
+    """Original options dashboard functionality."""
     # Show current capabilities
     st.info("💡 **Track Any Stock**: Enter any ticker symbol (AAPL, TSLA, NVDA, etc.) to analyze its options chain in real-time!")
     

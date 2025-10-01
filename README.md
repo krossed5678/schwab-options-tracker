@@ -41,6 +41,7 @@ This application works with **ANY** stock or ETF that has options trading, inclu
 
 ### Core Functionality
 - **🌟 ANY STOCK SUPPORT**: Track options for **any publicly traded stock or ETF** (AAPL, TSLA, NVDA, QQQ, etc.)
+- **🚀 IPO TRACKING**: Monitor upcoming IPOs, recent performance, and market calendar
 - **Real-Time Option Chains**: Fetch live options data with real-time quotes and Greeks
 - **Interactive Dashboard**: Built with Streamlit for intuitive filtering and visualization
 - **Greeks Analysis**: Complete options Greeks (Delta, Gamma, Theta, Vega, Rho) calculations
@@ -56,6 +57,8 @@ This application works with **ANY** stock or ETF that has options trading, inclu
 - **Data Export**: Export options data to CSV and JSON formats
 - **Flexible Filtering**: Filter by expiration, strike range, contract type, and moneyness
 - **Real-Time Quotes**: Live bid/ask spreads and last trade information
+- **IPO Calendar**: Comprehensive IPO tracking with timeline visualization
+- **Performance Analytics**: Track post-IPO performance and market sentiment
 
 ## 📋 Prerequisites
 
@@ -173,35 +176,69 @@ The application will automatically handle token refresh for future sessions.
 - Export unusual activity data
 - Save summary metrics as JSON
 
+#### 6. **IPO Tracking** (New!)
+- **Upcoming IPOs**: Browse IPOs coming in the next 90-365 days
+- **Recent Performance**: Analyze how recent IPOs have performed
+- **IPO Calendar**: Timeline view of all IPO activity
+- **Market Overview**: Sector analysis and market sentiment
+- **Performance Charts**: Visual analysis of IPO returns
+
 ## 📊 Dashboard Sections
 
-### 1. **Options Parameters** (Sidebar)
+### **📊 Options Analysis Tab**
+
+#### 1. **Options Parameters** (Sidebar)
 - Stock symbol input
 - Expiration filtering
 - Contract type selection
 - Strike range configuration
 - Advanced options (ITM/OTM filtering)
 
-### 2. **Unusual Activity Settings** (Sidebar)
+#### 2. **Unusual Activity Settings** (Sidebar)
 - Volume threshold
 - Open interest threshold
 - Volume/OI ratio threshold
 
-### 3. **Summary Dashboard**
+#### 3. **Summary Dashboard**
 - Underlying stock price
 - Total contracts and volume
 - Put/Call ratios
 - Average implied volatility
 
-### 4. **Visualizations**
+#### 4. **Visualizations**
 - Volume and Open Interest charts
 - Implied Volatility Smile
 - Interactive plotting with Plotly
 
-### 5. **Data Tables**
+#### 5. **Data Tables**
 - Unusual activity contracts
 - Complete options chain
 - Sortable and filterable columns
+
+### **🚀 IPO Tracker Tab** (NEW!)
+
+#### 1. **📅 Upcoming IPOs**
+- Browse IPOs scheduled for the next 7-365 days
+- Filter by sector (Technology, Biotech, Finance, etc.)
+- View price ranges, estimated raises, and appeal scores
+- Company details and underwriter information
+
+#### 2. **📊 Recent Performance**
+- Track how recent IPOs have performed since going public
+- Current returns vs IPO price
+- First-day performance analysis
+- Trading volume and market cap data
+
+#### 3. **📈 IPO Calendar**
+- Timeline visualization of all IPO activity
+- Calendar view with customizable date ranges
+- Visual representation of IPO density over time
+
+#### 4. **📋 Market Overview**
+- IPO market statistics and trends
+- Sector breakdown analysis
+- Market sentiment assessment (Bullish/Bearish)
+- Hot sectors identification
 
 ## ⚙️ Configuration
 
