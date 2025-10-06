@@ -16,6 +16,8 @@ sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
 from src.auth import SchwabAuth
 from src.schwab_client import SchwabClient
 from src.ipo_tracker import IPOTracker
+from src.portfolio_tracker import create_portfolio_tracker, save_portfolio_data, load_portfolio_data
+from src.alerts_system import create_alerts_dashboard, check_and_display_alerts
 from src.utils import (
     format_option_data, detect_unusual_activity, calculate_option_metrics_summary,
     format_currency, format_percentage, format_large_number
@@ -30,7 +32,7 @@ load_dotenv()
 
 # Page configuration
 st.set_page_config(
-    page_title="Schwab Options Viewer",
+    page_title="OptiFlow",
     page_icon="📈",
     layout="wide",
     initial_sidebar_state="expanded"
@@ -549,17 +551,35 @@ def create_ipo_calendar_chart(df: pd.DataFrame):
 
 def main():
     """Main application function."""
-    st.title("📈 Schwab Options & IPO Tracker")
+    st.title("📈 OptiFlow - Options & IPO Tracker")
     st.markdown("**Real-time options analysis for ANY stock or ETF** • **IPO tracking & analysis** • Unusual activity detection • Advanced Greeks calculations")
     
+    # Load portfolio data at startup
+    load_portfolio_data()
+    
+    # Check for alerts first
+    check_and_display_alerts()
+    
     # Main navigation tabs
-    main_tab1, main_tab2 = st.tabs(["📊 Options Analysis", "🚀 IPO Tracker"])
+    main_tab1, main_tab2, main_tab3, main_tab4 = st.tabs([
+        "📊 Options Analysis", "🚀 IPO Tracker", "💼 Portfolio", "🚨 Alerts"
+    ])
     
     with main_tab1:
         options_dashboard()
     
     with main_tab2:
         create_ipo_dashboard()
+        
+    with main_tab3:
+        create_portfolio_tracker()
+        
+    with main_tab4:
+        create_alerts_dashboard()
+        
+    # Auto-save portfolio data
+    if st.session_state.get('portfolio') or st.session_state.get('watchlist'):
+        save_portfolio_data()
 
 def options_dashboard():
     """Original options dashboard functionality."""

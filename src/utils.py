@@ -23,7 +23,7 @@ def calculate_days_to_expiration(expiration_date: Union[str, datetime, date]) ->
         for fmt in ['%Y-%m-%d', '%m/%d/%Y', '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f']:
             try:
                 exp_dt = datetime.strptime(expiration_date.split('T')[0] if 'T' in expiration_date else expiration_date, 
-                                        fmt.split('T')[0])
+                    fmt.split('T')[0])
                 break
             except ValueError:
                 continue

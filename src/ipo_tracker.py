@@ -1,8 +1,16 @@
-import requests
 import pandas as pd
+import requests
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Any, Optional
 import logging
+
+# Try to import yfinance, use fallback if not available
+try:
+    import yfinance as yf
+    YF_AVAILABLE = True
+except ImportError:
+    YF_AVAILABLE = False
+    yf = None
 
 logger = logging.getLogger(__name__)
 

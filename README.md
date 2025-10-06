@@ -1,6 +1,6 @@
-# Schwab Options Viewer
+# 📊 OptiFlow
 
-Schwab Options Viewer is a Python-based dashboard designed to help traders, investors, and developers analyze options markets in real-time using the Schwab Trader API. **Track options for ANY publicly traded stock or ETF** - from mega-cap stocks like AAPL and TSLA to sector ETFs like QQQ and SPY. The project provides an easy-to-use interface for visualizing option chains, monitoring key metrics, and identifying unusual trading activity across the entire market.
+A comprehensive trading dashboard with real-time options analysis, IPO tracking, portfolio management, and mobile notifications.
 
 ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
@@ -57,6 +57,14 @@ This application works with **ANY** stock or ETF that has options trading, inclu
 - **Data Export**: Export options data to CSV and JSON formats
 - **Flexible Filtering**: Filter by expiration, strike range, contract type, and moneyness
 - **Real-Time Quotes**: Live bid/ask spreads and last trade information
+
+### 🚀 IPO Tracking Features
+- **📅 Upcoming IPO Calendar**: View upcoming IPOs with expected dates, price ranges, and details
+- **📊 Recent IPO Performance**: Track post-IPO performance with first-day and current returns
+- **📈 IPO Market Overview**: Sector analysis and market trends for IPO activity
+- **🔍 IPO Search & Filter**: Filter IPOs by sector, date range, and market cap
+- **📋 Detailed IPO Information**: Company descriptions, underwriters, and offering details
+- **💹 Performance Analytics**: Track IPO performance metrics and sector comparisons
 - **IPO Calendar**: Comprehensive IPO tracking with timeline visualization
 - **Performance Analytics**: Track post-IPO performance and market sentiment
 
@@ -176,10 +184,25 @@ The application will automatically handle token refresh for future sessions.
 - Export unusual activity data
 - Save summary metrics as JSON
 
-#### 6. **IPO Tracking** (New!)
-- **Upcoming IPOs**: Browse IPOs coming in the next 90-365 days
-- **Recent Performance**: Analyze how recent IPOs have performed
-- **IPO Calendar**: Timeline view of all IPO activity
+#### 6. **IPO Tracking** 🚀
+- **📅 Upcoming IPOs Tab**: 
+  - Browse IPOs coming in the next 7-365 days
+  - Filter by sector (Technology, Healthcare, Energy, etc.)
+  - View expected dates, price ranges, and offering details
+  - See company descriptions and lead underwriters
+- **📊 Recent Performance Tab**: 
+  - Analyze post-IPO performance with interactive charts
+  - Compare first-day returns vs. current performance
+  - Track volume and market cap changes
+  - Filter by time period and performance metrics
+- **📈 IPO Calendar Tab**: 
+  - Timeline view of all recent and upcoming IPO activity
+  - Visual calendar with status indicators
+  - Quick overview of market IPO trends
+- **📋 Market Overview Tab**:
+  - Sector-wise IPO performance analysis
+  - Market trends and statistics
+  - Best and worst performing IPO sectors
 - **Market Overview**: Sector analysis and market sentiment
 - **Performance Charts**: Visual analysis of IPO returns
 
