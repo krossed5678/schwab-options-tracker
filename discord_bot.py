@@ -65,12 +65,19 @@ bot = commands.Bot(command_prefix='!opti ', intents=intents, help_command=None)
 schwab_client = None
 if SCHWAB_API_AVAILABLE:
     try:
-        auth = SchwabAuth()
-        schwab_client = SchwabClient(auth)
-        if schwab_client.test_connection():
-            print("✅ Schwab API connection successful")
+        app_key = os.getenv('SCHWAB_APP_KEY')
+        app_secret = os.getenv('SCHWAB_APP_SECRET')
+        
+        if not app_key or not app_secret:
+            print("❌ Schwab API credentials not found in .env file")
+            SCHWAB_API_AVAILABLE = False
         else:
-            print("⚠️ Schwab API connection failed - will retry automatically")
+            auth = SchwabAuth(app_key, app_secret)
+            schwab_client = SchwabClient(auth)
+            if schwab_client.test_connection():
+                print("✅ Schwab API connection successful")
+            else:
+                print("⚠️ Schwab API connection failed - will retry automatically")
     except Exception as e:
         print(f"❌ Failed to initialize Schwab API: {e}")
         SCHWAB_API_AVAILABLE = False

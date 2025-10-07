@@ -37,9 +37,16 @@ class InsiderOptionsScanner:
         self.schwab_client = None
         if SCHWAB_AVAILABLE:
             try:
-                auth = SchwabAuth()
-                self.schwab_client = SchwabClient(auth)
-                logger.info("✅ Insider scanner using Schwab API")
+                import os
+                app_key = os.getenv('SCHWAB_APP_KEY')
+                app_secret = os.getenv('SCHWAB_APP_SECRET')
+                
+                if app_key and app_secret:
+                    auth = SchwabAuth(app_key, app_secret)
+                    self.schwab_client = SchwabClient(auth)
+                    logger.info("✅ Insider scanner using Schwab API")
+                else:
+                    logger.warning("Schwab credentials not found for insider scanner")
             except Exception as e:
                 logger.error(f"Failed to initialize Schwab client for scanner: {e}")
                 self.schwab_client = None
