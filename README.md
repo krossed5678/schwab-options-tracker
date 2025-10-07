@@ -1,6 +1,6 @@
 # 📊 OptiFlow
 
-A comprehensive trading dashboard with real-time options analysis, IPO tracking, portfolio management, and mobile notifications.
+A comprehensive trading dashboard with real-time options analysis, IPO tracking, portfolio management, and **Discord bot integration** for seamless mobile alerts.
 
 ![Python Version](https://img.shields.io/badge/python-3.9+-blue.svg)
 ![License](https://img.shields.io/badge/license-MIT-green.svg)
