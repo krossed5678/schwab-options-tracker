@@ -12,20 +12,36 @@ import os
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional
-import yfinance as yf
 from dotenv import load_dotenv
 import logging
+import traceback
 
 # Load environment variables
 load_dotenv()
 
-# Import insider scanner
+# Import Schwab API client and insider scanner
+try:
+    from src.schwab_client import SchwabClient
+    from src.auth import SchwabAuth
+    SCHWAB_API_AVAILABLE = True
+    print("✅ Schwab API client loaded successfully")
+except ImportError as e:
+    SCHWAB_API_AVAILABLE = False
+    print(f"Warning: Schwab API not available - {e}")
+
 try:
     from src.insider_scanner import InsiderOptionsScanner, get_insider_options_alerts
     INSIDER_SCANNER_AVAILABLE = True
 except ImportError:
     INSIDER_SCANNER_AVAILABLE = False
-    print("Warning: Insider scanner not available - yfinance or pandas may be missing")
+    print("Warning: Insider scanner not available - dependencies may be missing")
+
+try:
+    from src.dashboard_server import start_dashboard_server, get_dashboard_url
+    DASHBOARD_AVAILABLE = True
+except ImportError:
+    DASHBOARD_AVAILABLE = False
+    print("Warning: Dashboard server not available")
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -36,12 +52,117 @@ BOT_TOKEN = os.getenv('DISCORD_BOT_TOKEN')
 GUILD_ID = int(os.getenv('DISCORD_GUILD_ID', '0'))
 ALERTS_CHANNEL_ID = int(os.getenv('DISCORD_ALERTS_CHANNEL_ID', '0'))
 
-# Bot setup with intents
+# Bot setup with message content intent (required for commands)
 intents = discord.Intents.default()
-intents.message_content = True
+intents.message_content = True  # REQUIRED: Enable this in Discord Developer Portal
 intents.guilds = True
+intents.guild_messages = True
 
+# Create bot instance
 bot = commands.Bot(command_prefix='!opti ', intents=intents, help_command=None)
+
+# Initialize Schwab API client
+schwab_client = None
+if SCHWAB_API_AVAILABLE:
+    try:
+        auth = SchwabAuth()
+        schwab_client = SchwabClient(auth)
+        if schwab_client.test_connection():
+            print("✅ Schwab API connection successful")
+        else:
+            print("⚠️ Schwab API connection failed - will retry automatically")
+    except Exception as e:
+        print(f"❌ Failed to initialize Schwab API: {e}")
+        SCHWAB_API_AVAILABLE = False
+
+# Helper functions to replace yfinance with Schwab API
+async def get_stock_quote(symbol: str) -> Optional[Dict]:
+    """Get stock quote using Schwab API instead of yfinance"""
+    if not schwab_client:
+        return None
+    
+    try:
+        quote_data = schwab_client.get_quote(symbol)
+        if quote_data:
+            # Convert Schwab format to yfinance-like format for compatibility
+            return {
+                'symbol': symbol.upper(),
+                'regularMarketPrice': quote_data.get('lastPrice', 0),
+                'regularMarketChange': quote_data.get('netChange', 0),
+                'regularMarketChangePercent': quote_data.get('netPercentChangeInDouble', 0),
+                'regularMarketVolume': quote_data.get('totalVolume', 0),
+                'regularMarketDayHigh': quote_data.get('highPrice', 0),
+                'regularMarketDayLow': quote_data.get('lowPrice', 0),
+                'regularMarketOpen': quote_data.get('openPrice', 0),
+                'regularMarketPreviousClose': quote_data.get('closePrice', 0),
+                'bid': quote_data.get('bidPrice', 0),
+                'ask': quote_data.get('askPrice', 0),
+                'marketCap': quote_data.get('marketCap', 0),
+                'trailingPE': quote_data.get('peRatio', 0),
+                'dividendYield': quote_data.get('divYield', 0),
+                'fiftyTwoWeekHigh': quote_data.get('highPrice52', 0),
+                'fiftyTwoWeekLow': quote_data.get('lowPrice52', 0),
+                'longName': quote_data.get('description', symbol),
+                'shortName': quote_data.get('description', symbol)
+            }
+        return None
+    except Exception as e:
+        logger.error(f"Error getting quote for {symbol}: {e}")
+        return None
+
+async def get_stock_info(symbol: str) -> Optional[Dict]:
+    """Get comprehensive stock info using Schwab API"""
+    quote = await get_stock_quote(symbol)
+    if quote:
+        return quote
+    return None
+
+async def get_stock_history(symbol: str, period: str = "1d") -> Optional[pd.DataFrame]:
+    """Get stock price history using Schwab API"""
+    if not schwab_client:
+        return None
+    
+    try:
+        # Convert period to days
+        period_days = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365}.get(period, 1)
+        history_data = schwab_client.get_price_history(symbol, period_type="day", period_days=period_days)
+        
+        if history_data and 'candles' in history_data:
+            candles = history_data['candles']
+            df = pd.DataFrame(candles)
+            df['datetime'] = pd.to_datetime(df['datetime'], unit='ms')
+            df.set_index('datetime', inplace=True)
+            df.rename(columns={
+                'open': 'Open',
+                'high': 'High', 
+                'low': 'Low',
+                'close': 'Close',
+                'volume': 'Volume'
+            }, inplace=True)
+            return df
+        return None
+    except Exception as e:
+        logger.error(f"Error getting history for {symbol}: {e}")
+        return None
+
+# Enhanced error handling for privileged intents
+async def handle_privileged_intents_error():
+    """Provide clear instructions for privileged intents setup."""
+    print("\n" + "="*70)
+    print("🚨 PRIVILEGED INTENTS ERROR - ACTION REQUIRED!")
+    print("="*70)
+    print("Your bot needs 'Message Content Intent' enabled to work properly.")
+    print("\n📋 QUICK FIX STEPS:")
+    print("1. Go to: https://discord.com/developers/applications/")
+    print("2. Select your bot application")
+    print("3. Click 'Bot' in the left sidebar")
+    print("4. Scroll down to 'Privileged Gateway Intents'")
+    print("5. Toggle ON 'Message Content Intent'")
+    print("6. Click 'Save Changes'")
+    print("7. Restart this bot")
+    print("\n💡 WHY: Discord requires explicit permission for bots to read message content.")
+    print("This is needed for the !opti commands to work.")
+    print("="*70)
 
 class TradingDataManager:
     """Manages trading data for Discord bot."""
@@ -53,20 +174,47 @@ class TradingDataManager:
         self.load_user_preferences()
         
     def get_insider_options(self, symbol: str) -> Dict[str, Any]:
-        """Get insider options activity (mock data - replace with real API)."""
+        """Get insider options activity using Schwab API."""
         try:
-            ticker = yf.Ticker(symbol)
-            options = ticker.options
+            if not schwab_client:
+                return {"error": "Schwab API not available"}
+                
+            options_data = schwab_client.get_option_chain(symbol)
             
-            if not options:
+            if not options_data:
                 return {"error": "No options data available"}
             
-            # Get nearest expiry
-            exp_date = options[0]
-            opt_chain = ticker.option_chain(exp_date)
+            # Process options data
+            calls = []
+            puts = []
             
-            calls = opt_chain.calls
-            puts = opt_chain.puts
+            # Extract calls and puts from Schwab format
+            call_map = options_data.get('callExpDateMap', {})
+            put_map = options_data.get('putExpDateMap', {})
+            
+            for exp_date, strikes in call_map.items():
+                for strike, options_list in strikes.items():
+                    for option in options_list:
+                        calls.append({
+                            'strike': float(strike),
+                            'volume': option.get('totalVolume', 0),
+                            'openInterest': option.get('openInterest', 0),
+                            'lastPrice': option.get('last', 0),
+                            'bid': option.get('bid', 0),
+                            'ask': option.get('ask', 0)
+                        })
+            
+            for exp_date, strikes in put_map.items():
+                for strike, options_list in strikes.items():
+                    for option in options_list:
+                        puts.append({
+                            'strike': float(strike),
+                            'volume': option.get('totalVolume', 0),
+                            'openInterest': option.get('openInterest', 0),
+                            'lastPrice': option.get('last', 0),
+                            'bid': option.get('bid', 0),
+                            'ask': option.get('ask', 0)
+                        })
             
             # Find high volume options (potential insider activity)
             high_vol_calls = calls[calls['volume'] > calls['volume'].quantile(0.9)] if not calls.empty else pd.DataFrame()
@@ -204,12 +352,306 @@ class TradingDataManager:
 # Initialize data manager
 data_manager = TradingDataManager()
 
+# Error code definitions
+ERROR_CODES = {
+    'E001': 'Market Data Unavailable',
+    'E002': 'Invalid Symbol',
+    'E003': 'Options Data Not Found',
+    'E004': 'Rate Limit Exceeded',
+    'E005': 'Database Connection Error',
+    'E006': 'Insider Scanner Unavailable',
+    'E007': 'Network/API Error',
+    'E008': 'Permission Error',
+    'E009': 'Invalid Parameter',
+    'E010': 'Service Temporarily Down'
+}
+
+async def send_instant_ack(ctx, message: str):
+    """Send instant acknowledgment message that only the user can see."""
+    try:
+        # Delete the user's command to keep channel clean
+        try:
+            await ctx.message.delete()
+        except discord.NotFound:
+            pass  # Message already deleted
+        except discord.Forbidden:
+            pass  # No permission to delete
+        
+        # Send ephemeral-style response (delete after short time)
+        ack_msg = await ctx.send(f"👋 {ctx.author.mention} {message}")
+        
+        # Delete acknowledgment after 3 seconds
+        await asyncio.sleep(3)
+        try:
+            await ack_msg.delete()
+        except discord.NotFound:
+            pass
+    except Exception as e:
+        print(f"Error sending instant ack: {e}")
+
+async def send_ephemeral_response(ctx, embed=None, content=None, delete_after=None):
+    """Send a response that appears private-like and auto-deletes."""
+    try:
+        # Delete the user's command first
+        try:
+            await ctx.message.delete()
+        except (discord.NotFound, discord.Forbidden):
+            pass
+        
+        # Send response with user mention for privacy feel
+        if embed:
+            msg = await ctx.send(f"{ctx.author.mention}", embed=embed)
+        else:
+            msg = await ctx.send(f"{ctx.author.mention} {content}")
+        
+        # Auto-delete after specified time
+        if delete_after:
+            await asyncio.sleep(delete_after)
+            try:
+                await msg.delete()
+            except discord.NotFound:
+                pass
+    except Exception as e:
+        print(f"Error sending ephemeral response: {e}")
+
+async def send_error_to_user(ctx, error_code: str, short_explanation: str, full_error: str = None):
+    """Send error information to user via DM and console logging."""
+    try:
+        # Log to console
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+        error_title = ERROR_CODES.get(error_code, 'Unknown Error')
+        
+        print(f"[{timestamp}] ERROR {error_code}: {error_title}")
+        print(f"User: {ctx.author.name}#{ctx.author.discriminator} ({ctx.author.id})")
+        print(f"Command: {ctx.message.content}")
+        print(f"Explanation: {short_explanation}")
+        if full_error:
+            print(f"Full Error: {full_error}")
+        print("-" * 80)
+        
+        # Create DM embed
+        embed = discord.Embed(
+            title=f"❌ Error {error_code}: {error_title}",
+            description=short_explanation,
+            color=0xe74c3c
+        )
+        
+        embed.add_field(
+            name="🔍 What happened?",
+            value=short_explanation,
+            inline=False
+        )
+        
+        embed.add_field(
+            name="⏰ When",
+            value=f"{datetime.now().strftime('%H:%M:%S')} UTC",
+            inline=True
+        )
+        
+        embed.add_field(
+            name="📝 Command",
+            value=f"`{ctx.message.content}`",
+            inline=True
+        )
+        
+        # Add helpful suggestions based on error type
+        suggestions = {
+            'E001': "Try again in a few minutes. Market data provider may be temporarily down.",
+            'E002': "Check if the stock symbol exists and is traded on major exchanges (e.g., AAPL, TSLA).",
+            'E003': "This stock may not have options available or data is delayed.",
+            'E004': "You're making requests too quickly. Wait 10-15 seconds between commands.",
+            'E005': "Database issue. Try using simpler commands like `!opti price SYMBOL`.",
+            'E006': "Insider scanner needs yfinance package. Contact admin for setup.",
+            'E007': "Network connectivity issue. Check your internet or try again later.",
+            'E008': "Bot doesn't have required permissions in this server/channel.",
+            'E009': "Check command format. Use `!opti help` for examples.",
+            'E010': "Service is down for maintenance. Try again in 5-10 minutes."
+        }
+        
+        if error_code in suggestions:
+            embed.add_field(
+                name="💡 Suggestion",
+                value=suggestions[error_code],
+                inline=False
+            )
+        
+        embed.add_field(
+            name="🆘 Still having issues?",
+            value="Use `!opti help` for command examples or contact support",
+            inline=False
+        )
+        
+        embed.set_footer(text="OptiFlow Error System • Your issue has been logged")
+        
+        # Try to send DM
+        try:
+            await ctx.author.send(embed=embed)
+            
+            # Send brief message in channel
+            await ctx.send(f"❌ {error_code}: {short_explanation}. Check your DMs for details.")
+            
+        except discord.Forbidden:
+            # User has DMs disabled, send full error in channel
+            await ctx.send(embed=embed)
+            
+    except Exception as dm_error:
+        # Fallback if DM system fails
+        print(f"[ERROR] Failed to send error DM: {dm_error}")
+        try:
+            await ctx.send(f"❌ {error_code}: {short_explanation}")
+        except:
+            pass
+
+@bot.event
+async def on_command_error(ctx, error):
+    """Global error handler for all bot commands."""
+    
+    # Don't handle errors that have already been handled
+    if hasattr(ctx.command, 'on_error'):
+        return
+    
+    error_msg = str(error)
+    
+    # Command not found
+    if isinstance(error, commands.CommandNotFound):
+        await send_error_to_user(
+            ctx, 'E009',
+            f"Unknown command. Use `!opti help` to see available commands",
+            f"CommandNotFound: {error_msg}"
+        )
+        return
+    
+    # Missing required argument
+    elif isinstance(error, commands.MissingRequiredArgument):
+        await send_error_to_user(
+            ctx, 'E009',
+            f"Missing required parameter: {error.param.name}. Use `!opti help` for examples",
+            f"MissingRequiredArgument: {error_msg}"
+        )
+        return
+    
+    # Bad argument (wrong type)
+    elif isinstance(error, commands.BadArgument):
+        await send_error_to_user(
+            ctx, 'E009',
+            f"Invalid parameter format. Check command syntax with `!opti help`",
+            f"BadArgument: {error_msg}"
+        )
+        return
+    
+    # Command on cooldown
+    elif isinstance(error, commands.CommandOnCooldown):
+        await send_error_to_user(
+            ctx, 'E004',
+            f"Command is on cooldown. Try again in {error.retry_after:.1f} seconds",
+            f"CommandOnCooldown: {error_msg}"
+        )
+        return
+    
+    # Bot missing permissions
+    elif isinstance(error, commands.BotMissingPermissions):
+        await send_error_to_user(
+            ctx, 'E008',
+            "Bot missing required permissions in this channel/server",
+            f"BotMissingPermissions: {error_msg}"
+        )
+        return
+    
+    # User missing permissions
+    elif isinstance(error, commands.MissingPermissions):
+        await send_error_to_user(
+            ctx, 'E008',
+            "You don't have permission to use this command",
+            f"MissingPermissions: {error_msg}"
+        )
+        return
+    
+    # Any other unexpected error
+    else:
+        await send_error_to_user(
+            ctx, 'E010',
+            "An unexpected error occurred. The issue has been logged for investigation",
+            f"Unhandled Error: {type(error).__name__}: {error_msg}\nTraceback: {traceback.format_exc()}"
+        )
+
 @bot.event
 async def on_ready():
     """Bot startup event."""
     print(f'🤖 OptiFlow Discord Bot is ready!')
     print(f'📊 Logged in as {bot.user} (ID: {bot.user.id})')
     print(f'🔗 Connected to {len(bot.guilds)} server(s)')
+    
+    # Send startup message to alerts channel
+    if ALERTS_CHANNEL_ID:
+        channel = bot.get_channel(ALERTS_CHANNEL_ID)
+        if channel:
+            embed = discord.Embed(
+                title="🚀 OptiFlow Bot Online!",
+                description="Real-time insider options intelligence is now active",
+                color=0x00ff00
+            )
+            
+            embed.add_field(
+                name="🕵️ Insider Commands",
+                value=(
+                    "`!opti insider_scan` - Scan all stocks for suspicious activity\n"
+                    "`!opti big_trades` - High-value trades ($500K+ default)\n"
+                    "`!opti big_trades 1000000` - Trades over $1M\n"
+                    "`!opti insider_alerts` - Configure your alert preferences"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="📊 Market Data",
+                value=(
+                    "`!opti price AAPL` - Get AAPL stock price & info\n"
+                    "`!opti options TSLA` - TSLA options chain analysis\n"
+                    "`!opti volume NVDA` - NVDA volume analysis\n"
+                    "`!opti summary` - Market overview"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🔔 Personalized Alerts Setup",
+                value=(
+                    "`!opti setnotify insider_min_value 500000` - $500K minimum\n"
+                    "`!opti setnotify insider_min_dte 45` - 45+ days DTE\n"
+                    "`!opti setnotify insider_min_score 8` - Score 8+/10\n"
+                    "`!opti setnotify insider_alerts on` - Enable notifications"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🎯 Other Useful Commands",
+                value=(
+                    "`!opti ipos` - Upcoming IPO calendar\n"
+                    "`!opti watch NVDA` - Add NVDA to watchlist\n"
+                    "`!opti help` - Full command list\n"
+                    "`!opti notify` - View all your settings"
+                ),
+                inline=False
+            )
+            
+            embed.add_field(
+                name="🚨 Auto-Monitoring Active",
+                value=(
+                    "• Scanning **82+ stocks** every 30 minutes\n"
+                    "• High-priority alerts (score 8+) posted here\n"
+                    "• Personal DMs sent based on your preferences\n"
+                    "• Monitoring: AAPL, TSLA, NVDA, JPM, GS + 77 more"
+                ),
+                inline=False
+            )
+            
+            embed.set_footer(text="OptiFlow • Professional Insider Options Intelligence • Try !opti insider_scan")
+            
+            try:
+                await channel.send(embed=embed)
+            except Exception as e:
+                print(f"Could not send startup message to alerts channel: {e}")
     
     # Start background tasks
     if not alert_monitor.is_running():
@@ -266,49 +708,109 @@ async def help_command(ctx):
         inline=False
     )
     
-    embed.set_footer(text="OptiFlow • Personalized Trading Intelligence")
+    embed.add_field(
+        name="🌐 Live Dashboard",
+        value="`!opti view` - Launch real-time options flow web dashboard\n📊 Live data updates every 30 seconds\n🔥 Critical insider signals in real-time",
+        inline=False
+    )
     
-    await ctx.send(embed=embed)
+    embed.add_field(
+        name="✨ New Enhanced Experience",
+        value=(
+            "🔒 **Private responses** - Only you can see command results\n"
+            "🧹 **Auto-cleanup** - Commands are automatically deleted\n"
+            "⚡ **Instant feedback** - Immediate acknowledgments for all commands\n"
+            "📢 **Verbose updates** - Real-time progress for long operations"
+        ),
+        inline=False
+    )
+    
+    embed.set_footer(text="OptiFlow Pro • Enhanced UX • Private Responses • Auto-Cleanup • Real-time Intelligence")
+    
+    await send_ephemeral_response(ctx, embed=embed, delete_after=60)
 
 @bot.command(name='price')
-async def get_price(ctx, symbol: str):
+async def get_price(ctx, symbol: str = None):
     """Get current stock price and basic info."""
+    if not symbol:
+        await send_error_to_user(
+            ctx, 'E009',
+            "Missing stock symbol - use format: !opti price AAPL",
+            "No symbol parameter provided"
+        )
+        return
+    
     try:
         symbol = symbol.upper()
-        ticker = yf.Ticker(symbol)
-        info = ticker.info
-        hist = ticker.history(period="1d")
         
-        if hist.empty:
-            await ctx.send(f"❌ Could not find data for {symbol}")
+        # Get stock data using Schwab API
+        quote_data = await get_stock_quote(symbol)
+        
+        if not quote_data:
+            await send_error_to_user(
+                ctx, 'E002',
+                f"Symbol '{symbol}' not found or has no trading data",
+                f"Schwab API returned no data for {symbol}"
+            )
             return
         
-        current_price = hist['Close'][-1]
-        prev_close = info.get('previousClose', current_price)
-        change = current_price - prev_close
-        change_pct = (change / prev_close) * 100
+        current_price = quote_data.get('regularMarketPrice', 0)
+        prev_close = quote_data.get('regularMarketPreviousClose', current_price)
+        change = quote_data.get('regularMarketChange', 0)
+        change_pct = quote_data.get('regularMarketChangePercent', 0)
         
         color = 0x00ff00 if change >= 0 else 0xff0000
         emoji = "📈" if change >= 0 else "📉"
         
         embed = discord.Embed(
-            title=f"{emoji} {symbol} - {info.get('shortName', symbol)}",
+            title=f"{emoji} {symbol} - {quote_data.get('shortName', symbol)}",
             color=color
         )
         
         embed.add_field(name="💰 Price", value=f"${current_price:.2f}", inline=True)
         embed.add_field(name="📊 Change", value=f"${change:+.2f} ({change_pct:+.2f}%)", inline=True)
-        embed.add_field(name="📉 Volume", value=f"{hist['Volume'][-1]:,}", inline=True)
+        embed.add_field(name="📉 Volume", value=f"{quote_data.get('regularMarketVolume', 0):,}", inline=True)
         
-        if 'marketCap' in info:
-            embed.add_field(name="🏢 Market Cap", value=f"${info['marketCap']:,}", inline=True)
+        market_cap = quote_data.get('marketCap', 0)
+        if market_cap:
+            embed.add_field(name="🏢 Market Cap", value=f"${market_cap:,}", inline=True)
         
         embed.set_footer(text=f"Data as of {datetime.now().strftime('%H:%M:%S EST')}")
         
         await ctx.send(embed=embed)
         
+    except KeyError as e:
+        await send_error_to_user(
+            ctx, 'E002',
+            f"Invalid symbol '{symbol}' - check spelling and try again",
+            f"KeyError accessing ticker data: {str(e)}"
+        )
+    except ConnectionError as e:
+        await send_error_to_user(
+            ctx, 'E007',
+            "Network error while fetching stock data - check your connection",
+            f"ConnectionError: {str(e)}"
+        )
     except Exception as e:
-        await ctx.send(f"❌ Error getting price for {symbol}: {str(e)}")
+        error_msg = str(e)
+        if "delisted" in error_msg.lower():
+            await send_error_to_user(
+                ctx, 'E002',
+                f"Symbol '{symbol}' may be delisted or unavailable",
+                error_msg
+            )
+        elif "rate limit" in error_msg.lower() or "429" in error_msg:
+            await send_error_to_user(
+                ctx, 'E004',
+                "Too many requests - wait 10 seconds before trying again",
+                error_msg
+            )
+        else:
+            await send_error_to_user(
+                ctx, 'E001',
+                f"Unable to fetch data for '{symbol}' - market data may be temporarily down",
+                f"Exception: {error_msg}\nTraceback: {traceback.format_exc()}"
+            )
 
 @bot.command(name='insider')
 async def get_insider_options(ctx, symbol: str):
@@ -719,12 +1221,10 @@ async def market_summary(ctx):
         summary_data = []
         
         for symbol in indices:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d")
-            if not hist.empty:
-                current = hist['Close'][-1]
-                prev = ticker.info.get('previousClose', current)
-                change_pct = ((current - prev) / prev) * 100
+            quote_data = await get_stock_quote(symbol)
+            if quote_data:
+                current = quote_data.get('regularMarketPrice', 0)
+                change_pct = quote_data.get('regularMarketChangePercent', 0)
                 summary_data.append({
                     'symbol': symbol,
                     'price': current,
@@ -773,13 +1273,11 @@ async def top_movers(ctx, market_cap: str = "all"):
         
         for symbol in symbols[:8]:  # Top 8
             try:
-                ticker = yf.Ticker(symbol)
-                hist = ticker.history(period="2d")
-                if len(hist) >= 2:
-                    current = hist['Close'][-1]
-                    prev = hist['Close'][-2]
-                    change_pct = ((current - prev) / prev) * 100
-                    volume = hist['Volume'][-1]
+                quote_data = await get_stock_quote(symbol)
+                if quote_data:
+                    current = quote_data.get('regularMarketPrice', 0)
+                    change_pct = quote_data.get('regularMarketChangePercent', 0)
+                    volume = quote_data.get('regularMarketVolume', 0)
                     
                     movers_data.append({
                         'symbol': symbol,
@@ -925,16 +1423,22 @@ async def volume_analysis(ctx, symbol: str):
     """Analyze volume patterns for a symbol."""
     try:
         symbol = symbol.upper()
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="30d")
         
-        if hist.empty:
+        # Get current quote for volume data
+        quote_data = await get_stock_quote(symbol)
+        if not quote_data:
             await ctx.send(f"❌ No data available for {symbol}")
             return
         
-        current_volume = hist['Volume'][-1]
+        # Get historical data for volume comparison
+        hist = await get_stock_history(symbol, "1mo")
+        if hist is None or hist.empty:
+            await ctx.send(f"❌ No historical data available for {symbol}")
+            return
+        
+        current_volume = quote_data.get('regularMarketVolume', 0)
         avg_volume = hist['Volume'].mean()
-        volume_ratio = current_volume / avg_volume
+        volume_ratio = current_volume / avg_volume if avg_volume > 0 else 0
         
         # Volume analysis
         if volume_ratio > 3:
@@ -1254,73 +1758,144 @@ async def send_insider_alerts_to_users(alert):
 async def insider_scan(ctx):
     """Scan for suspicious insider options activity across all stocks."""
     if not INSIDER_SCANNER_AVAILABLE:
-        embed = discord.Embed(
-            title="❌ Feature Unavailable",
-            description="Insider scanner requires yfinance and pandas packages",
-            color=0xe74c3c
+        await send_error_to_user(
+            ctx, 'E006', 
+            "Insider scanner is not available - missing required packages (yfinance/pandas)",
+            "INSIDER_SCANNER_AVAILABLE = False"
         )
-        await ctx.send(embed=embed)
         return
     
     try:
-        # Send loading message
-        loading_msg = await ctx.send("🔍 Scanning for suspicious options activity across all markets...")
+        # Instant acknowledgment
+        await send_instant_ack(ctx, "Got it! 🕵️ Firing up the insider scanner... hunting for big moves across 82+ stocks!")
+        
+        # Verbose progress messaging
+        progress_messages = [
+            "🔍 Connecting to market data streams...",
+            "📊 Analyzing volume patterns across all sectors...", 
+            "🎯 Scanning for unusual options activity...",
+            "🧮 Calculating suspicious trade scores...",
+            "🔥 Filtering for high-value insider signals..."
+        ]
+        
+        progress_msg = await ctx.send(progress_messages[0])
+        
+        # Update progress as we scan
+        for i, msg in enumerate(progress_messages[1:], 1):
+            await asyncio.sleep(1)
+            await progress_msg.edit(content=msg)
         
         # Initialize scanner and get alerts
         scanner = InsiderOptionsScanner()
+        
+        await progress_msg.edit(content="🚨 Analyzing 82+ stocks for insider patterns...")
         alerts = await asyncio.get_event_loop().run_in_executor(None, get_insider_options_alerts)
         
         if not alerts:
             embed = discord.Embed(
-                title="✅ No Suspicious Activity",
-                description="No unusual options activity detected at this time",
+                title="✅ All Clear - No Suspicious Activity",
+                description="Markets looking clean right now. No unusual insider options activity detected across all monitored stocks.",
                 color=0x95a5a6
             )
-            await loading_msg.edit(content="", embed=embed)
+            embed.add_field(
+                name="📊 Scan Complete",
+                value=f"✅ Analyzed {len(scanner.scan_symbols)} symbols\n🔍 Checked volume, DTE, and trade values\n⏰ Next auto-scan in 30 minutes",
+                inline=False
+            )
+            await send_ephemeral_response(ctx, embed=embed, delete_after=30)
+            await progress_msg.delete()
             return
         
         # Create detailed embed with top 10 alerts
         embed = discord.Embed(
-            title="🚨 Suspicious Options Activity Detected",
-            description=f"Found {len(alerts)} unusual trades. Showing top 10:",
+            title="🚨 INSIDER INTELLIGENCE ALERT",
+            description=f"🔥 **{len(alerts)} suspicious trades detected!** Here are the top 10 most unusual activities:",
             color=0xe74c3c
         )
         
-        for i, alert in enumerate(alerts[:10]):
-            score_emoji = "🔥" if alert['unusual_score'] >= 8 else "⚠️" if alert['unusual_score'] >= 6 else "📊"
+        embed.add_field(
+            name="📈 Scan Summary",
+            value=f"🎯 Monitored: {len(scanner.scan_symbols)} symbols\n⚡ Found: {len(alerts)} unusual trades\n🔥 High priority: {len([a for a in alerts if a['unusual_score'] >= 8])} trades",
+            inline=False
+        )
+        
+        for i, alert in enumerate(alerts[:8]):  # Show top 8 to keep readable
+            score_emoji = "🔥" if alert['unusual_score'] >= 9 else "⚠️" if alert['unusual_score'] >= 7 else "📊"
+            priority = "CRITICAL" if alert['unusual_score'] >= 9 else "HIGH" if alert['unusual_score'] >= 7 else "MODERATE"
             
-            field_name = f"{score_emoji} {alert['symbol']} - Score: {alert['unusual_score']}/10"
+            field_name = f"{score_emoji} {alert['symbol']} • Score: {alert['unusual_score']}/10 • {priority}"
             field_value = (
-                f"**Strike:** ${alert['strike']}\n"
-                f"**Type:** {alert['option_type'].upper()}\n"
-                f"**DTE:** {alert['dte']} days\n"
-                f"**Volume:** {alert['volume']:,}\n"
-                f"**Value:** ${alert['estimated_value']:,.0f}\n"
-                f"**Reason:** {', '.join(alert['alert_reasons'])[:100]}..."
+                f"💰 **Value:** ${alert['estimated_value']:,.0f}\n"
+                f"📊 **Strike:** ${alert['strike']} {alert['option_type'].upper()}\n"
+                f"⏰ **DTE:** {alert['dte']} days\n"
+                f"📈 **Volume:** {alert['volume']:,} contracts\n"
+                f"🎯 **Signals:** {', '.join(alert['alert_reasons'][:2])}"
             )
             
             embed.add_field(name=field_name, value=field_value, inline=True)
-            
-            # Discord embed limit is 25 fields, but let's keep it readable
-            if i >= 9:
-                break
         
-        embed.set_footer(text="OptiFlow • Use !opti big_trades for high-value trades only")
-        await loading_msg.edit(content="", embed=embed)
+        embed.add_field(
+            name="🎯 Next Steps",
+            value="• Use `!opti big_trades` for high-value focus\n• Use `!opti view` for live options flow dashboard\n• Set personal alerts with `!opti insider_alerts`",
+            inline=False
+        )
         
+        embed.set_footer(text="OptiFlow Insider Intelligence • Data refreshes every 30min • Use !opti view for live dashboard")
+        
+        await progress_msg.delete()
+        await send_ephemeral_response(ctx, embed=embed, delete_after=60)
+        
+    except ImportError as e:
+        await send_error_to_user(
+            ctx, 'E006',
+            "Required packages missing for insider scanning",
+            f"ImportError: {str(e)}"
+        )
+    except ConnectionError as e:
+        await send_error_to_user(
+            ctx, 'E007',
+            "Network error while fetching market data - check internet connection",
+            f"ConnectionError: {str(e)}"
+        )
     except Exception as e:
-        await ctx.send(f"❌ Error scanning for insider activity: {str(e)}")
+        error_msg = str(e)
+        if "rate limit" in error_msg.lower():
+            await send_error_to_user(
+                ctx, 'E004',
+                "API rate limit exceeded - wait 30 seconds before trying again",
+                error_msg
+            )
+        elif "no data found" in error_msg.lower():
+            await send_error_to_user(
+                ctx, 'E001',
+                "Market data temporarily unavailable - try again in a few minutes",
+                error_msg
+            )
+        else:
+            await send_error_to_user(
+                ctx, 'E010',
+                "Unexpected error during insider scan - service may be temporarily down",
+                f"Exception: {error_msg}\nTraceback: {traceback.format_exc()}"
+            )
 
 @bot.command(name='big_trades')
 async def big_trades(ctx, min_value: int = 500000):
     """Show recent high-value long-DTE options trades."""
     if not INSIDER_SCANNER_AVAILABLE:
-        embed = discord.Embed(
-            title="❌ Feature Unavailable", 
-            description="Insider scanner requires yfinance and pandas packages",
-            color=0xe74c3c
+        await send_error_to_user(
+            ctx, 'E006',
+            "Insider scanner is not available - missing required packages",
+            "INSIDER_SCANNER_AVAILABLE = False"
         )
-        await ctx.send(embed=embed)
+        return
+    
+    # Validate min_value parameter
+    if min_value < 10000 or min_value > 100000000:
+        await send_error_to_user(
+            ctx, 'E009',
+            f"Invalid minimum value ${min_value:,} - use between $10K and $100M",
+            f"min_value parameter out of range: {min_value}"
+        )
         return
     
     try:
@@ -1370,8 +1945,133 @@ async def big_trades(ctx, min_value: int = 500000):
         embed.set_footer(text="OptiFlow • Use different min_value: !opti big_trades 1000000")
         await loading_msg.edit(content="", embed=embed)
         
+    except ValueError as e:
+        await send_error_to_user(
+            ctx, 'E009',
+            f"Invalid number format for minimum value - use: !opti big_trades 500000",
+            f"ValueError: {str(e)}"
+        )
+    except ImportError as e:
+        await send_error_to_user(
+            ctx, 'E006',
+            "Required packages missing for big trades scanning",
+            f"ImportError: {str(e)}"
+        )
+    except ConnectionError as e:
+        await send_error_to_user(
+            ctx, 'E007',
+            "Network error while scanning for big trades - check internet connection",
+            f"ConnectionError: {str(e)}"
+        )
     except Exception as e:
-        await ctx.send(f"❌ Error finding big trades: {str(e)}")
+        error_msg = str(e)
+        if "rate limit" in error_msg.lower():
+            await send_error_to_user(
+                ctx, 'E004',
+                "API rate limit exceeded - wait 30 seconds before trying again",
+                error_msg
+            )
+        else:
+            await send_error_to_user(
+                ctx, 'E010',
+                "Unexpected error during big trades scan - service may be temporarily down",
+                f"Exception: {error_msg}\nTraceback: {traceback.format_exc()}"
+            )
+
+@bot.command(name='view')
+async def live_dashboard(ctx):
+    """Launch the live options flow dashboard in your browser."""
+    try:
+        # Instant acknowledgment
+        await send_instant_ack(ctx, "🚀 Firing up your personal options intelligence dashboard... this is going to be epic!")
+        
+        # Check if dashboard is available
+        if not DASHBOARD_AVAILABLE:
+            await send_error_to_user(
+                ctx, 'E006',
+                "Live dashboard is not available - missing dashboard server components",
+                "DASHBOARD_AVAILABLE = False"
+            )
+            return
+        
+        # Progress messaging
+        progress_msg = await ctx.send("🔥 Initializing real-time options flow dashboard...")
+        
+        await asyncio.sleep(1)
+        await progress_msg.edit(content="📊 Starting web server for live market data...")
+        
+        # Start the dashboard server
+        dashboard_url = start_dashboard_server()
+        
+        await asyncio.sleep(1)
+        await progress_msg.edit(content="🎯 Dashboard is now LIVE! Preparing your personal link...")
+        
+        # Create the dashboard embed
+        embed = discord.Embed(
+            title="🚀 OptiFlow Live Intelligence Dashboard",
+            description="**Your personal options flow command center is ready!**",
+            color=0x00ff00
+        )
+        
+        embed.add_field(
+            name="🌐 Access Your Dashboard",
+            value=f"**[🚀 CLICK HERE TO OPEN DASHBOARD]({dashboard_url})**\n\n"
+                  f"Direct URL: `{dashboard_url}`",
+            inline=False
+        )
+        
+        embed.add_field(
+            name="📊 Dashboard Features",
+            value=(
+                "🔥 **Critical Insider Signals** - Live alerts for suspicious activity\n"
+                "⚠️ **High Priority Trades** - Big money moves as they happen\n"
+                "📈 **Volume Leaders** - Stocks with unusual options activity\n" 
+                "💎 **Big Money Moves** - Institutional-sized trades\n"
+                "🔄 **Auto-Refresh** - Updates every 30 seconds"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🎯 Pro Tips",
+            value=(
+                "• Keep the dashboard open for real-time monitoring\n"
+                "• Use alongside Discord commands for deeper analysis\n"
+                "• Best viewed on desktop/laptop for full experience\n"
+                "• Dashboard shows data from 82+ monitored stocks"
+            ),
+            inline=False
+        )
+        
+        embed.add_field(
+            name="🔗 Quick Commands",
+            value=(
+                "`!opti insider_scan` - Deep analysis of current alerts\n"
+                "`!opti big_trades` - Filter for high-value trades only\n"
+                "`!opti price SYMBOL` - Quick stock info lookup"
+            ),
+            inline=False
+        )
+        
+        embed.set_footer(text="OptiFlow Pro Dashboard • Keep this window open for live updates • Data refreshes automatically")
+        
+        await progress_msg.delete()
+        await send_ephemeral_response(ctx, embed=embed, delete_after=120)
+        
+    except Exception as e:
+        error_msg = str(e)
+        if "port" in error_msg.lower() or "address" in error_msg.lower():
+            await send_error_to_user(
+                ctx, 'E007',
+                "Unable to start web dashboard - network port issue",
+                f"Server error: {error_msg}"
+            )
+        else:
+            await send_error_to_user(
+                ctx, 'E010',
+                "Unexpected error launching dashboard - service may be temporarily down",
+                f"Exception: {error_msg}\nTraceback: {traceback.format_exc()}"
+            )
 
 @bot.command(name='insider_alerts')
 async def insider_alerts(ctx):
@@ -1433,4 +2133,19 @@ if __name__ == "__main__":
         exit(1)
     
     print("🚀 Starting OptiFlow Discord Bot...")
-    bot.run(BOT_TOKEN)
+    
+    try:
+        bot.run(BOT_TOKEN)
+    except discord.PrivilegedIntentsRequired:
+        asyncio.run(handle_privileged_intents_error())
+        print("\n❌ Bot startup failed - Privileged intents not enabled")
+        print("🔄 Please follow the steps above and restart the bot")
+        exit(1)
+    except discord.LoginFailure:
+        print("\n❌ Bot login failed - Invalid token")
+        print("💡 Check your DISCORD_BOT_TOKEN in .env file")
+        exit(1)
+    except Exception as e:
+        print(f"\n❌ Unexpected error starting bot: {e}")
+        print("💡 Check your internet connection and bot configuration")
+        exit(1)

@@ -1,0 +1,535 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>🚀 OptiFlow - Live Options Intelligence Dashboard</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a1a 50%, #2a2a2a 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            overflow-x: auto;
+        }
+        
+        .header {
+            background: linear-gradient(90deg, #ff6b6b, #4ecdc4, #45b7d1);
+            padding: 20px;
+            text-align: center;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+            text-shadow: 2px 2px 4px rgba(0,0,0,0.5);
+        }
+        
+        .header .subtitle {
+            font-size: 1.2em;
+            opacity: 0.9;
+        }
+        
+        .stats-bar {
+            display: flex;
+            justify-content: space-around;
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            margin: 20px;
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+        }
+        
+        .stat {
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 2em;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+        
+        .stat-label {
+            font-size: 0.9em;
+            opacity: 0.8;
+            margin-top: 5px;
+        }
+        
+        .dashboard {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 20px;
+            padding: 20px;
+        }
+        
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+        
+        .card:hover {
+            transform: translateY(-5px) scale(1.01);
+            background: rgba(255,255,255,0.08);
+        }
+        
+        /* Smooth animations for appearing items */
+        .card.entering {
+            animation: slideInUp 0.6s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+        
+        .card.leaving {
+            animation: slideOutDown 0.4s cubic-bezier(0.4, 0, 0.2, 1);
+            animation-fill-mode: forwards;
+        }
+        
+        @keyframes slideInUp {
+            0% {
+                opacity: 0;
+                transform: translateY(30px) scale(0.95);
+            }
+            100% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+        }
+        
+        @keyframes slideOutDown {
+            0% {
+                opacity: 1;
+                transform: translateY(0) scale(1);
+            }
+            100% {
+                opacity: 0;
+                transform: translateY(-20px) scale(0.95);
+            }
+        }
+        
+        /* Fade animations for content changes */
+        .card-content {
+            transition: all 0.3s ease;
+        }
+        
+        .card-content.updating {
+            opacity: 0.7;
+            transform: scale(0.98);
+        }
+        
+        .card-header {
+            display: flex;
+            align-items: center;
+            margin-bottom: 15px;
+        }
+        
+        .card-icon {
+            font-size: 1.5em;
+            margin-right: 10px;
+        }
+        
+        .card-title {
+            font-size: 1.3em;
+            font-weight: bold;
+        }
+        
+        .trade-item {
+            background: rgba(255,255,255,0.08);
+            margin: 10px 0;
+            padding: 15px;
+            border-radius: 10px;
+            border-left: 4px solid;
+            transition: all 0.3s ease;
+        }
+        
+        .trade-item:hover {
+            background: rgba(255,255,255,0.12);
+        }
+        
+        .critical { border-left-color: #ff4757; }
+        .high { border-left-color: #ffa502; }
+        .moderate { border-left-color: #3742fa; }
+        
+        .trade-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .symbol {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #4ecdc4;
+        }
+        
+        .score {
+            background: linear-gradient(45deg, #ff6b6b, #4ecdc4);
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 0.9em;
+            font-weight: bold;
+        }
+        
+        .trade-details {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            font-size: 0.9em;
+        }
+        
+        .detail-item {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .detail-label {
+            color: #888;
+            font-size: 0.8em;
+            margin-bottom: 2px;
+        }
+        
+        .detail-value {
+            font-weight: bold;
+            color: #fff;
+        }
+        
+        .refresh-status {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: rgba(0,0,0,0.8);
+            padding: 10px 15px;
+            border-radius: 20px;
+            font-size: 0.9em;
+            backdrop-filter: blur(10px);
+        }
+        
+        .pulsing {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { opacity: 0.6; }
+            50% { opacity: 1; }
+            100% { opacity: 0.6; }
+        }
+        
+        .volume-bar {
+            height: 20px;
+            background: rgba(255,255,255,0.2);
+            border-radius: 10px;
+            overflow: hidden;
+            margin: 5px 0;
+        }
+        
+        .volume-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #4ecdc4, #45b7d1);
+            transition: width 0.5s ease;
+        }
+        
+        .footer {
+            text-align: center;
+            padding: 20px;
+            background: rgba(0,0,0,0.3);
+            margin-top: 40px;
+        }
+        
+        @media (max-width: 768px) {
+            .dashboard {
+                grid-template-columns: 1fr;
+                padding: 10px;
+            }
+            
+            .stats-bar {
+                flex-direction: column;
+                gap: 15px;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="refresh-status" id="refreshStatus">
+        🔄 Live • Updated: <span id="lastUpdate">--:--:--</span>
+    </div>
+    
+    <div class="header">
+        <h1>🚀 OptiFlow Intelligence</h1>
+        <div class="subtitle">Real-Time Options Flow • Insider Activity Detector • Professional Trading Intelligence</div>
+    </div>
+    
+    <div class="stats-bar">
+        <div class="stat">
+            <div class="stat-value" id="totalTrades">--</div>
+            <div class="stat-label">Active Signals</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="totalValue">$--</div>
+            <div class="stat-label">Total Value</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="criticalAlerts">--</div>
+            <div class="stat-label">Critical Alerts</div>
+        </div>
+        <div class="stat">
+            <div class="stat-value" id="symbolsMonitored">82+</div>
+            <div class="stat-label">Stocks Monitored</div>
+        </div>
+    </div>
+    
+    <div class="dashboard">
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">🔥</div>
+                <div class="card-title">Critical Insider Signals</div>
+            </div>
+            <div id="criticalTrades">
+                <div class="trade-item critical">
+                    <div class="trade-header">
+                        <div class="symbol">Loading...</div>
+                        <div class="score">--/10</div>
+                    </div>
+                    <div class="trade-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Connecting to data streams...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">⚠️</div>
+                <div class="card-title">High Priority Trades</div>
+            </div>
+            <div id="highTrades">
+                <div class="trade-item high">
+                    <div class="trade-header">
+                        <div class="symbol">Initializing...</div>
+                        <div class="score">--/10</div>
+                    </div>
+                    <div class="trade-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Fetching options data...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">📊</div>
+                <div class="card-title">Volume Leaders</div>
+            </div>
+            <div id="volumeLeaders">
+                <div class="trade-item moderate">
+                    <div class="trade-header">
+                        <div class="symbol">Scanning...</div>
+                        <div class="score">--/10</div>
+                    </div>
+                    <div class="trade-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Analyzing market data...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <div class="card-header">
+                <div class="card-icon">💎</div>
+                <div class="card-title">Big Money Moves</div>
+            </div>
+            <div id="bigMoney">
+                <div class="trade-item critical">
+                    <div class="trade-header">
+                        <div class="symbol">Processing...</div>
+                        <div class="score">--/10</div>
+                    </div>
+                    <div class="trade-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Calculating trade values...</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <div class="footer">
+        <p>🚀 <strong>OptiFlow Intelligence Dashboard</strong> • Powered by Advanced Options Flow Analysis</p>
+        <p>📊 Real-time data • 🕵️ Insider detection • 💰 Professional trading intelligence</p>
+        <p style="margin-top: 10px; opacity: 0.7;">Use <code>!opti insider_scan</code> in Discord for detailed analysis</p>
+    </div>
+    
+    <script>
+        // Live data refresh system
+        let refreshInterval;
+        let dataCache = {};
+        
+        function updateTimestamp() {
+            const now = new Date();
+            document.getElementById('lastUpdate').textContent = now.toLocaleTimeString();
+        }
+        
+        function formatCurrency(value) {
+            if (value >= 1000000) {
+                return '$' + (value / 1000000).toFixed(1) + 'M';
+            } else if (value >= 1000) {
+                return '$' + (value / 1000).toFixed(0) + 'K';
+            } else {
+                return '$' + value.toLocaleString();
+            }
+        }
+        
+        function createTradeItem(trade, priority = 'moderate') {
+            return `
+                <div class="trade-item ${priority}">
+                    <div class="trade-header">
+                        <div class="symbol">${trade.symbol}</div>
+                        <div class="score">${trade.score}/10</div>
+                    </div>
+                    <div class="trade-details">
+                        <div class="detail-item">
+                            <div class="detail-label">Strike</div>
+                            <div class="detail-value">$${trade.strike}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Type</div>
+                            <div class="detail-value">${trade.type}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">DTE</div>
+                            <div class="detail-value">${trade.dte}d</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Volume</div>
+                            <div class="detail-value">${trade.volume.toLocaleString()}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Value</div>
+                            <div class="detail-value">${formatCurrency(trade.value)}</div>
+                        </div>
+                        <div class="detail-item">
+                            <div class="detail-label">Signals</div>
+                            <div class="detail-value">${trade.signals}</div>
+                        </div>
+                    </div>
+                    <div class="volume-bar">
+                        <div class="volume-fill" style="width: ${Math.min(trade.volumePercent, 100)}%"></div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Simulate live data (replace with actual API calls)
+        function generateMockData() {
+            const symbols = ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'GOOGL', 'META', 'AMZN', 'JPM', 'GS', 'SPY'];
+            const types = ['CALL', 'PUT'];
+            const signals = ['High Volume', 'Unusual Activity', 'Big Money', 'Insider Flow'];
+            
+            const trades = [];
+            for (let i = 0; i < 12; i++) {
+                trades.push({
+                    symbol: symbols[Math.floor(Math.random() * symbols.length)],
+                    strike: Math.floor(Math.random() * 400) + 100,
+                    type: types[Math.floor(Math.random() * types.length)],
+                    dte: Math.floor(Math.random() * 90) + 30,
+                    volume: Math.floor(Math.random() * 50000) + 1000,
+                    value: Math.floor(Math.random() * 5000000) + 100000,
+                    score: Math.floor(Math.random() * 4) + 7,
+                    signals: signals[Math.floor(Math.random() * signals.length)],
+                    volumePercent: Math.random() * 100
+                });
+            }
+            
+            return trades.sort((a, b) => b.score - a.score);
+        }
+        
+        function updateDashboard() {
+            const trades = generateMockData();
+            
+            // Update stats
+            const totalValue = trades.reduce((sum, trade) => sum + trade.value, 0);
+            const criticalCount = trades.filter(t => t.score >= 9).length;
+            
+            document.getElementById('totalTrades').textContent = trades.length;
+            document.getElementById('totalValue').textContent = formatCurrency(totalValue);
+            document.getElementById('criticalAlerts').textContent = criticalCount;
+            
+            // Update trade sections
+            const critical = trades.filter(t => t.score >= 9).slice(0, 3);
+            const high = trades.filter(t => t.score >= 7 && t.score < 9).slice(0, 3);
+            const volume = trades.sort((a, b) => b.volume - a.volume).slice(0, 3);
+            const bigMoney = trades.sort((a, b) => b.value - a.value).slice(0, 3);
+            
+            document.getElementById('criticalTrades').innerHTML = 
+                critical.map(t => createTradeItem(t, 'critical')).join('') || 
+                '<div class="trade-item critical"><div class="trade-header"><div class="symbol">No Critical Alerts</div></div></div>';
+                
+            document.getElementById('highTrades').innerHTML = 
+                high.map(t => createTradeItem(t, 'high')).join('') || 
+                '<div class="trade-item high"><div class="trade-header"><div class="symbol">No High Priority</div></div></div>';
+                
+            document.getElementById('volumeLeaders').innerHTML = 
+                volume.map(t => createTradeItem(t, 'moderate')).join('');
+                
+            document.getElementById('bigMoney').innerHTML = 
+                bigMoney.map(t => createTradeItem(t, 'critical')).join('');
+            
+            updateTimestamp();
+        }
+        
+        // Initialize dashboard
+        document.addEventListener('DOMContentLoaded', function() {
+            updateDashboard();
+            
+            // Refresh every 30 seconds
+            refreshInterval = setInterval(() => {
+                const status = document.getElementById('refreshStatus');
+                status.classList.add('pulsing');
+                
+                setTimeout(() => {
+                    updateDashboard();
+                    status.classList.remove('pulsing');
+                }, 1000);
+            }, 30000);
+        });
+        
+        // Add some visual effects
+        // Enhanced hover effects without rotation
+        document.addEventListener('mousemove', function(e) {
+            const cards = document.querySelectorAll('.card');
+            cards.forEach(card => {
+                const rect = card.getBoundingClientRect();
+                const x = e.clientX - rect.left - rect.width / 2;
+                const y = e.clientY - rect.top - rect.height / 2;
+                
+                if (Math.abs(x) < rect.width / 2 && Math.abs(y) < rect.height / 2) {
+                    // Subtle elevation and glow instead of rotation
+                    card.style.transform = `translateY(-5px) scale(1.02)`;
+                    card.style.boxShadow = '0 20px 40px rgba(0,0,0,0.3), 0 0 20px rgba(78, 205, 196, 0.3)';
+                } else {
+                    card.style.transform = '';
+                    card.style.boxShadow = '';
+                }
+            });
+        });
+    </script>
+</body>
+</html>

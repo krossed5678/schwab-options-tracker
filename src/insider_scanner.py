@@ -4,7 +4,6 @@ OptiFlow Insider Options Scanner
 Detects high-value, long-DTE options trades across all stocks for potential insider activity.
 """
 
-import yfinance as yf
 import pandas as pd
 from datetime import datetime, timedelta
 from typing import Dict, List, Any, Optional, Tuple
@@ -15,6 +14,15 @@ import os
 
 logger = logging.getLogger(__name__)
 
+# Import Schwab client
+try:
+    from .schwab_client import SchwabClient
+    from .auth import SchwabAuth
+    SCHWAB_AVAILABLE = True
+except ImportError:
+    SCHWAB_AVAILABLE = False
+    logger.warning("Schwab API not available for insider scanner")
+
 class InsiderOptionsScanner:
     """Scans for potential insider options activity across all stocks."""
     
@@ -24,6 +32,17 @@ class InsiderOptionsScanner:
         self.min_dte = 30  # Minimum 30 days to expiration
         self.volume_threshold = 100  # Minimum 100 contracts
         self.detected_trades = []
+        
+        # Initialize Schwab client
+        self.schwab_client = None
+        if SCHWAB_AVAILABLE:
+            try:
+                auth = SchwabAuth()
+                self.schwab_client = SchwabClient(auth)
+                logger.info("✅ Insider scanner using Schwab API")
+            except Exception as e:
+                logger.error(f"Failed to initialize Schwab client for scanner: {e}")
+                self.schwab_client = None
         
     def _get_scannable_symbols(self) -> List[str]:
         """Get list of symbols to scan for insider activity."""
@@ -66,117 +85,124 @@ class InsiderOptionsScanner:
         return insider_alerts[:20]  # Top 20 most valuable trades
     
     def _analyze_symbol_options(self, symbol: str) -> List[Dict[str, Any]]:
-        """Analyze options for a specific symbol."""
+        """Analyze options for a specific symbol using Schwab API."""
         alerts = []
         
+        if not self.schwab_client:
+            return alerts
+        
         try:
-            ticker = yf.Ticker(symbol)
-            stock_price = ticker.history(period="1d")['Close'][-1]
-            
-            # Get all available option expirations
-            expirations = ticker.options
-            if not expirations:
+            # Get current stock price
+            quote_data = self.schwab_client.get_quote(symbol)
+            if not quote_data:
+                return alerts
+                
+            stock_price = quote_data.get('lastPrice', 0)
+            if stock_price <= 0:
                 return alerts
             
-            # Check each expiration for long-DTE trades
-            for exp_date in expirations:
-                try:
-                    # Calculate DTE
-                    exp_datetime = datetime.strptime(exp_date, '%Y-%m-%d')
-                    dte = (exp_datetime - datetime.now()).days
-                    
-                    if dte < self.min_dte:
-                        continue  # Skip short-term options
-                    
-                    # Get options chain
-                    options_chain = ticker.option_chain(exp_date)
-                    
-                    # Analyze calls
-                    call_alerts = self._analyze_options_data(
-                        options_chain.calls, symbol, exp_date, dte, stock_price, 'CALL'
-                    )
-                    alerts.extend(call_alerts)
-                    
-                    # Analyze puts  
-                    put_alerts = self._analyze_options_data(
-                        options_chain.puts, symbol, exp_date, dte, stock_price, 'PUT'
-                    )
-                    alerts.extend(put_alerts)
-                    
-                except Exception as e:
-                    logger.debug(f"Error analyzing {symbol} {exp_date}: {str(e)}")
+            # Get options chain (30-90 days out for insider activity)
+            options_data = self.schwab_client.get_option_chain(symbol, days_to_expiration=90)
+            if not options_data:
+                return alerts
+            
+            # Process both calls and puts
+            for option_type in ['callExpDateMap', 'putExpDateMap']:
+                if option_type not in options_data:
                     continue
+                    
+                exp_date_map = options_data[option_type]
+                
+                for exp_date_str, strikes in exp_date_map.items():
+                    try:
+                        # Parse expiration date and calculate DTE
+                        exp_date = datetime.strptime(exp_date_str.split(':')[0], '%Y-%m-%d')
+                        dte = (exp_date - datetime.now()).days
+                        
+                        if dte < self.min_dte:
+                            continue  # Skip short-term options
+                        
+                        # Analyze each strike price
+                        for strike_price, options_list in strikes.items():
+                            for option_data in options_list:
+                                option_type_name = 'CALL' if option_type == 'callExpDateMap' else 'PUT'
+                                
+                                # Check for unusual activity
+                                alert = self._check_option_for_insider_activity(
+                                    option_data, symbol, exp_date_str, dte, stock_price, option_type_name, float(strike_price)
+                                )
+                                
+                                if alert:
+                                    alerts.append(alert)
+                    
+                    except Exception as e:
+                        logger.debug(f"Error analyzing {symbol} {exp_date_str}: {str(e)}")
+                        continue
         
         except Exception as e:
             logger.debug(f"Error getting options for {symbol}: {str(e)}")
         
         return alerts
     
-    def _analyze_options_data(self, options_df: pd.DataFrame, symbol: str, 
-                            exp_date: str, dte: int, stock_price: float, 
-                            option_type: str) -> List[Dict[str, Any]]:
-        """Analyze individual options for insider activity."""
-        alerts = []
-        
-        if options_df.empty:
-            return alerts
-        
-        for _, option in options_df.iterrows():
-            try:
-                volume = option.get('volume', 0)
-                open_interest = option.get('openInterest', 0)
-                last_price = option.get('lastPrice', 0)
-                strike = option.get('strike', 0)
-                
-                # Skip if no meaningful volume
-                if volume < self.volume_threshold or last_price <= 0:
-                    continue
-                
-                # Calculate trade characteristics
-                estimated_value = volume * last_price * 100  # Options are per 100 shares
-                
-                # Skip if trade value too small
-                if estimated_value < self.min_trade_value:
-                    continue
-                
-                # Calculate moneyness
-                if option_type == 'CALL':
-                    moneyness = strike / stock_price
-                    itm_otm = "ITM" if strike < stock_price else "OTM"
-                else:  # PUT
-                    moneyness = stock_price / strike  
-                    itm_otm = "ITM" if strike > stock_price else "OTM"
-                
-                # Detect unusual characteristics (potential insider signals)
-                unusual_score = self._calculate_unusual_score(
-                    volume, open_interest, estimated_value, dte, moneyness, itm_otm
-                )
-                
-                if unusual_score >= 7:  # High threshold for insider alerts
-                    alert = {
-                        'symbol': symbol,
-                        'option_type': option_type,
-                        'strike': strike,
-                        'expiration': exp_date,
-                        'dte': dte,
-                        'volume': volume,
-                        'open_interest': open_interest,
-                        'last_price': last_price,
-                        'estimated_value': estimated_value,
-                        'stock_price': stock_price,
-                        'moneyness': moneyness,
-                        'itm_otm': itm_otm,
-                        'unusual_score': unusual_score,
-                        'detected_at': datetime.now().isoformat(),
-                        'alert_reasons': self._get_alert_reasons(unusual_score, volume, open_interest, estimated_value, dte)
-                    }
-                    alerts.append(alert)
+    def _check_option_for_insider_activity(self, option_data: Dict, symbol: str, 
+                                          exp_date: str, dte: int, stock_price: float, 
+                                          option_type: str, strike: float) -> Optional[Dict[str, Any]]:
+        """Check individual option for potential insider activity."""
+        try:
+            volume = option_data.get('totalVolume', 0)
+            open_interest = option_data.get('openInterest', 0)
+            last_price = option_data.get('last', 0)
+            bid = option_data.get('bid', 0)
+            ask = option_data.get('ask', 0)
             
-            except Exception as e:
-                logger.debug(f"Error analyzing option: {str(e)}")
-                continue
-        
-        return alerts
+            # Skip if no meaningful volume or price
+            if volume < self.volume_threshold or last_price <= 0:
+                return None
+            
+            # Calculate trade characteristics
+            estimated_value = volume * last_price * 100  # Options are per 100 shares
+            
+            # Skip if trade value too small
+            if estimated_value < self.min_trade_value:
+                return None
+            
+            # Calculate moneyness
+            if option_type == 'CALL':
+                moneyness = strike / stock_price
+                itm_otm = "ITM" if strike < stock_price else "OTM"
+            else:  # PUT
+                moneyness = stock_price / strike  
+                itm_otm = "ITM" if strike > stock_price else "OTM"
+                
+            # Detect unusual characteristics (potential insider signals)
+            unusual_score = self._calculate_unusual_score(
+                volume, open_interest, estimated_value, dte, moneyness, itm_otm
+            )
+            
+            if unusual_score >= 7:  # High threshold for insider alerts
+                alert = {
+                    'symbol': symbol,
+                    'option_type': option_type,
+                    'strike': strike,
+                    'expiration': exp_date,
+                    'dte': dte,
+                    'volume': volume,
+                    'open_interest': open_interest,
+                    'last_price': last_price,
+                    'estimated_value': estimated_value,
+                    'stock_price': stock_price,
+                    'moneyness': moneyness,
+                    'itm_otm': itm_otm,
+                    'unusual_score': unusual_score,
+                    'detected_at': datetime.now().isoformat(),
+                    'alert_reasons': self._get_alert_reasons(unusual_score, volume, open_interest, estimated_value, dte)
+                }
+                return alert
+                
+        except Exception as e:
+            logger.debug(f"Error analyzing option: {str(e)}")
+            
+        return None
     
     def _calculate_unusual_score(self, volume: int, open_interest: int, 
                                estimated_value: float, dte: int, 
